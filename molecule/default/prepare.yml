@@ -1,0 +1,98 @@
+---
+- name: Prepare
+  hosts: all
+  become: true
+  vars:
+    redmine_db_password: password
+    redmine_db_name: redmine
+    redmine_db_user: redmine
+    pg_hba_conf_path: /var/lib/pgsql/14/data/pg_hba.conf
+    work_dir: /tmp/redmine-install-dir
+
+  tasks:
+    - name: Add authorized keys
+      ansible.posix.authorized_key:
+        user: centos
+        key: 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCxmSm2oUf9/9bYd/Mn847pkOQyvN9ZIwWk8gEEe8pOF/Zi+RAetq2kO3E/nJNlgfVYRR+KbIl9ViqmxHoJmR4nxAO04ZG79Qdg+AwDLNBXeFInnI2nCCrWqGRQPaesBYRnP1vws318WbovK0pJduv8mgb/QQ/uk9jNHAewtsz7GCaTRdcClT9v+w8VTNg25E/sWjx7Y7prgRTvil15wz5sspeyEorotzu4ZEj7JeycIyXEcil8d0hxAT59MHR/b4ej+uOCAOG9yeMiIdcAm6m0Uj/PDcc6gKZxZArHBSux9mSADW3tvkstXqwjWP7bc9ImtgQVDzJ1A4U/AnIKvWBb+jnPQxeVjxU3nOB2gyOPQqAfScNeuAgY+IL03VvbeWa34t2hDVpEq1434uxn48Kabk3QfGVFhY2tCH9JU3ibOI9GUFB/qbo+agfRPbGAqASoerPU1BFPV/zjTUr5S2aU6bgqFc8NQT1SnKGD2RvNtqSoYfTE5VkloynWDQFCClk= tomonori@matsumuratomonorinoMacBook-Pro.local'
+
+    - name: Install requirements
+      ansible.builtin.package:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - gcc
+        - patch
+
+    - name: Install Python
+      ansible.builtin.package:
+        name: python3-devel
+        state: present
+
+    - name: Install psycopg2
+      ansible.builtin.pip:
+        name: psycopg2
+        state: present
+      environment:
+        PATH: "/usr/pgsql-14/bin:{{ ansible_env.PATH }}"
+
+    - name: Restart postgresql.service
+      ansible.builtin.service:
+        name: postgresql-14
+        state: restarted
+        enabled: yes
+
+    - name: Add privilege escalation to user 'postgres'
+      ansible.builtin.lineinfile:
+        dest: /etc/sudoers.d/postgres
+        owner: root
+        group: root
+        mode: 0440
+        line: "%{{ ansible_user_id }} ALL=(postgres) NOPASSWD: ALL"
+        state: present
+        create: yes
+        validate: "visudo -cf %s"
+      environment:
+        PATH:
+          "{{ ansible_env.PATH }} "
+
+    - name: Create PostgreSQL user
+      become: true
+      become_user: postgres
+      become_method: ansible.builtin.sudo
+      community.general.postgresql_user:
+        name: '{{ redmine_db_user }}'
+        password: '{{ redmine_db_password }}'
+      environment:
+        PATH: "/usr/pgsql-14/bin:{{ ansible_env.PATH }}"
+
+    - name: Create database
+      become: true
+      become_user: postgres
+      become_method: ansible.builtin.sudo
+      community.general.postgresql_db:
+        name: redmine
+        encoding: UTF-8
+        lc_collate: ja_JP.UTF-8
+        lc_ctype: ja_JP.UTF-8
+        template: template0
+      environment:
+        PATH: "/usr/pgsql-14/bin:{{ ansible_env.PATH }}"
+
+    - name: Update pg_hba.conf file
+      ansible.builtin.template:
+        src: templates/pg_hba.conf.j2
+        dest: /var/lib/pgsql/14/data/pg_hba.conf
+        owner: postgres
+        group: postgres
+        mode: '0600'
+
+    - name: Remove privilege escalation from user 'postgres'
+      ansible.builtin.file:
+        path: /etc/sudoers.d/postgres
+        state: absent
+
+    - name: Restart postgresql.service
+      ansible.builtin.service:
+        name: postgresql-14
+        state: restarted
+        enabled: yes

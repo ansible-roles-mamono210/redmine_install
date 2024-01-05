@@ -1,0 +1,25 @@
+---
+- name: Side effect
+  hosts: all
+  become: true
+  vars:
+    httpd_conf_confd: redmine.conf
+
+  tasks:
+    - name: Register results of showing configuration snippet command to variable
+      ansible.builtin.command: passenger-install-apache2-module --snippet
+      changed_when: false
+      environment:
+        PATH: "/usr/local/bin:{{ ansible_env.PATH }}"
+      register: passenger_snippet_vars
+
+    - name: Create redmine.conf
+      ansible.builtin.template:
+        src: redmine.conf
+        dest: "/etc/httpd/conf.d/{{ httpd_conf_confd }}"
+        mode: 0755
+
+    - name: Restart postgresql.service
+      ansible.builtin.service:
+        name: httpd
+        state: restarted
