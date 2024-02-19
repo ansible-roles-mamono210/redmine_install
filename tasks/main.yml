@@ -58,17 +58,6 @@
     dest: "{{ redmine_dir }}/config/database.yml"
     force: no
     mode: 0755
-  register:
-    result_database_yml
-
-- name: Read database.yml
-  ansible.builtin.slurp:
-    src: "{{ redmine_dir }}/config/database.yml"
-  register: database_yml_content
-
-- name: Show database.yml content
-  ansible.builtin.debug:
-    msg: "{{ database_yml_content['content'] | b64decode }}"
 
 - name: Create configuration.yml under Redmine installed directory
   ansible.builtin.template:
@@ -76,15 +65,6 @@
     dest: "{{ redmine_dir }}/config/configuration.yml"
     force: no
     mode: 0755
-
-- name: Read configuration.yml
-  ansible.builtin.slurp:
-    src: "{{ redmine_dir }}/config/configuration.yml"
-  register: configuration_content
-
-- name: Show configuration.yml content
-  ansible.builtin.debug:
-    msg: "{{ configuration_content['content'] | b64decode }}"
 
 - name: Install Redmine gem packages
   community.general.bundler:
