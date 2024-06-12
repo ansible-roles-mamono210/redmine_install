@@ -1,6 +1,6 @@
 ---
-- name: Install Development Tools with yum
-  ansible.builtin.yum:
+- name: Install Development Tools
+  ansible.builtin.package:
     name: '@Development Tools'
     state: present
 
@@ -13,7 +13,7 @@
     - ansible_distribution_major_version == "8"
 
 - name: Install ImageMagick and Japanese fonts
-  ansible.builtin.yum:
+  ansible.builtin.package:
     name:
       - ImageMagick
       - ImageMagick-devel
@@ -21,13 +21,13 @@
     state: present
 
 - name: Install Ghostscript
-  ansible.builtin.yum:
+  ansible.builtin.package:
     name:
       - ghostscript
     state: present
 
 - name: Install other prerequisites
-  ansible.builtin.yum:
+  ansible.builtin.package:
     name:
       - git
       - subversion
