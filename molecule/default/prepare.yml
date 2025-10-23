@@ -91,7 +91,7 @@
         path: /etc/sudoers.d/postgres
         state: absent
 
-    - name: Restart postgresql.service
+    - name: Restart postgresql.service (after pg_hba update)
       ansible.builtin.service:
         name: postgresql-14
         state: restarted
