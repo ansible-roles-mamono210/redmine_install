@@ -3,11 +3,33 @@
   ansible.builtin.package:
     name: '@Development Tools'
     state: present
+  register: dev_tools_result
+  retries: 3
+  delay: 5
+  until: dev_tools_result is succeeded
+  failed_when: dev_tools_result is failed
+  ignore_errors: no
+
+- name: Verify Development Tools installation
+  ansible.builtin.command:
+    cmd: gcc --version
+  changed_when: false
+  failed_when: false
+  register: gcc_check
+
+- name: Fail if Development Tools installation was unsuccessful
+  ansible.builtin.fail:
+    msg: "Failed to install Development Tools. GCC is not available. Error: {{ dev_tools_result.msg | default('Unknown error') }}"
+  when: gcc_check.rc != 0
 
 - name: Enable CentOS PowerTools repository
   ansible.builtin.command:
     cmd: dnf config-manager --set-enabled powertools
   changed_when: false
+  register: powertools_result
+  failed_when:
+    - powertools_result.rc != 0
+    - "'No such command' not in powertools_result.stderr"
   when:
     - ansible_distribution == "CentOS"
     - ansible_distribution_major_version == "8"
@@ -19,12 +41,28 @@
       - ImageMagick-devel
       - google-noto-sans-cjk-jp-fonts
     state: present
+  register: imagemagick_result
+  retries: 3
+  delay: 5
+  until: imagemagick_result is succeeded
+  failed_when: imagemagick_result is failed
+
+- name: Verify ImageMagick installation
+  ansible.builtin.command:
+    cmd: convert --version
+  changed_when: false
+  register: imagemagick_check
+  failed_when: imagemagick_check.rc != 0
 
 - name: Install Ghostscript
   ansible.builtin.package:
     name:
       - ghostscript
     state: present
+  register: ghostscript_result
+  retries: 3
+  delay: 5
+  until: ghostscript_result is succeeded
 
 - name: Install other prerequisites
   ansible.builtin.package:
@@ -33,11 +71,26 @@
       - subversion
       - which
     state: present
+  register: prereq_result
+  retries: 3
+  delay: 5
+  until: prereq_result is succeeded
+
+- name: Verify git installation
+  ansible.builtin.command:
+    cmd: git --version
+  changed_when: false
+  register: git_check
+  failed_when: git_check.rc != 0
 
 - name: Install libyaml-devel
   ansible.builtin.dnf:
     name: libyaml-devel
     state: present
+  register: libyaml_result
+  retries: 3
+  delay: 5
+  until: libyaml_result is succeeded
 
 - name: Install bundler with gem
   community.general.gem:
@@ -45,12 +98,59 @@
     user_install: no
   environment:
     PATH: "/usr/local/bin:{{ ansible_env.PATH }}"
+  register: bundler_result
+  retries: 3
+  delay: 5
+  until: bundler_result is succeeded
+
+- name: Verify bundler installation
+  ansible.builtin.command:
+    cmd: bundle --version
+  environment:
+    PATH: "/usr/local/bin:{{ ansible_env.PATH }}"
+  changed_when: false
+  register: bundler_check
+  failed_when: bundler_check.rc != 0
+
+- name: Validate Redmine directory path
+  ansible.builtin.assert:
+    that:
+      - redmine_dir is defined
+      - redmine_dir | length > 0
+      - redmine_dir is match('^/')
+    fail_msg: "Invalid Redmine directory path: {{ redmine_dir | default('undefined') }}. Must be an absolute path."
+    success_msg: "Redmine directory path validated: {{ redmine_dir }}"
+
+- name: Validate Git repository URL
+  ansible.builtin.assert:
+    that:
+      - redmica_git_url is defined
+      - redmica_git_url | length > 0
+      - redmica_git_url is match('^https?://')
+    fail_msg: "Invalid Git repository URL: {{ redmica_git_url | default('undefined') }}. Must be a valid HTTP/HTTPS URL."
+    success_msg: "Git repository URL validated: {{ redmica_git_url }}"
 
 - name: Checkout Redmine source codes
   ansible.builtin.git:
     repo: '{{ redmica_git_url }}'
     version: '{{ redmica_git_version }}'
     dest: '{{ redmine_dir }}'
+  register: git_checkout_result
+  retries: 3
+  delay: 10
+  until: git_checkout_result is succeeded
+  failed_when: git_checkout_result is failed
+
+- name: Verify Redmine config directory exists
+  ansible.builtin.stat:
+    path: "{{ redmine_dir }}/config"
+  register: config_dir_stat
+  failed_when: not config_dir_stat.stat.exists or not config_dir_stat.stat.isdir
+
+- name: Display error if config directory missing
+  ansible.builtin.fail:
+    msg: "Redmine config directory does not exist at {{ redmine_dir }}/config. Git checkout may have failed."
+  when: not config_dir_stat.stat.exists
 
 - name: Create database.yml under Redmine installed directory
   ansible.builtin.template:
@@ -58,6 +158,14 @@
     dest: "{{ redmine_dir }}/config/database.yml"
     force: no
     mode: 0755
+  register: database_yml_result
+  failed_when: database_yml_result is failed
+
+- name: Verify database.yml was created
+  ansible.builtin.stat:
+    path: "{{ redmine_dir }}/config/database.yml"
+  register: database_yml_stat
+  failed_when: not database_yml_stat.stat.exists
 
 - name: Create configuration.yml under Redmine installed directory
   ansible.builtin.template:
@@ -65,6 +173,20 @@
     dest: "{{ redmine_dir }}/config/configuration.yml"
     force: no
     mode: 0755
+  register: config_yml_result
+  failed_when: config_yml_result is failed
+
+- name: Verify configuration.yml was created
+  ansible.builtin.stat:
+    path: "{{ redmine_dir }}/config/configuration.yml"
+  register: config_yml_stat
+  failed_when: not config_yml_stat.stat.exists
+
+- name: Verify Gemfile exists before bundle install
+  ansible.builtin.stat:
+    path: "{{ redmine_dir }}/Gemfile"
+  register: gemfile_stat
+  failed_when: not gemfile_stat.stat.exists
 
 - name: Install Redmine gem packages
   community.general.bundler:
@@ -72,6 +194,20 @@
     chdir: '{{ redmine_dir }}'
   environment:
     PATH: "/usr/local/bin:/usr/pgsql-14/bin:{{ ansible_env.PATH }}"
+  register: bundle_install_result
+  retries: 3
+  delay: 10
+  until: bundle_install_result is succeeded
+  failed_when:
+    - bundle_install_result is failed
+    - bundle_install_result.msg is not search('idempotent')
+
+- name: Display bundle install error details
+  ansible.builtin.fail:
+    msg: "Bundle install failed. Error: {{ bundle_install_result.msg | default('Unknown error') }}. Check if all system dependencies are installed."
+  when:
+    - bundle_install_result is failed
+    - bundle_install_result.msg is not search('idempotent')
 
 - name: Create secret token
   ansible.builtin.command: bundle exec rake generate_secret_token
@@ -82,6 +218,35 @@
   environment:
     PATH: "/usr/local/bin:/usr/pgsql-14/bin:{{ ansible_env.PATH }}"
     RAILS_ENV: production
+  retries: 2
+  delay: 5
+  until: redmine_bundle_token is succeeded
+  failed_when:
+    - redmine_bundle_token.rc != 0
+    - "'secret_token' not in (redmine_bundle_token.stdout | default('') + redmine_bundle_token.stderr | default(''))"
+
+- name: Display secret token generation error
+  ansible.builtin.debug:
+    msg: "Warning: Secret token generation may have failed. Return code: {{ redmine_bundle_token.rc }}, Output: {{ redmine_bundle_token.stdout | default('') }}, Error: {{ redmine_bundle_token.stderr | default('') }}"
+  when: redmine_bundle_token.rc != 0
+
+- name: Verify database connectivity before migration
+  ansible.builtin.command: bundle exec rake db:version
+  args:
+    chdir: '{{ redmine_dir }}'
+  environment:
+    PATH: "/usr/local/bin:/usr/pgsql-14/bin:{{ ansible_env.PATH }}"
+    RAILS_ENV: production
+  register: db_version_check
+  changed_when: false
+  failed_when: false
+
+- name: Display database connection error
+  ansible.builtin.fail:
+    msg: "Cannot connect to database. Please verify database configuration in {{ redmine_dir }}/config/database.yml and ensure database service is running. Error: {{ db_version_check.stderr | default('Unknown error') }}"
+  when:
+    - db_version_check.rc != 0
+    - "'database' in (db_version_check.stderr | default('') | lower) or 'connection' in (db_version_check.stderr | default('') | lower)"
 
 - name: Execute database migration
   ansible.builtin.command: bundle exec rake db:migrate
@@ -92,6 +257,27 @@
   environment:
     PATH: "/usr/local/bin:/usr/pgsql-14/bin:{{ ansible_env.PATH }}"
     RAILS_ENV: production
+  retries: 2
+  delay: 5
+  until: redmine_bundle_migrate is succeeded
+  failed_when: redmine_bundle_migrate.rc != 0
+
+- name: Display migration error details
+  ansible.builtin.debug:
+    msg: "Database migration error: {{ redmine_bundle_migrate.stderr | default('No error details available') }}"
+  when: redmine_bundle_migrate.rc != 0
+
+- name: Validate user and group exist before setting ownership
+  ansible.builtin.command: "id {{ redmine_dir_owner }}"
+  changed_when: false
+  register: user_check
+  failed_when: user_check.rc != 0
+
+- name: Validate group exists
+  ansible.builtin.command: "getent group {{ redmine_dir_group }}"
+  changed_when: false
+  register: group_check
+  failed_when: group_check.rc != 0
 
 - name: Set owner and group of Redmine installed directory
   ansible.builtin.file:
@@ -99,3 +285,14 @@
     owner: '{{ redmine_dir_owner }}'
     group: '{{ redmine_dir_group }}'
     recurse: yes
+  register: ownership_result
+  failed_when: ownership_result is failed
+
+- name: Verify ownership was set correctly
+  ansible.builtin.stat:
+    path: "{{ redmine_dir }}"
+  register: final_ownership_check
+
+- name: Display final ownership status
+  ansible.builtin.debug:
+    msg: "Redmine directory ownership: {{ final_ownership_check.stat.pw_name }}:{{ final_ownership_check.stat.gr_name }}"
