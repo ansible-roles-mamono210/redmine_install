@@ -99,3 +99,53 @@
     owner: '{{ redmine_dir_owner }}'
     group: '{{ redmine_dir_group }}'
     recurse: yes
+
+- name: Clear Redmine cache (before assets rebuild)
+  ansible.builtin.command: bundle exec rake tmp:cache:clear
+  args:
+    chdir: "{{ redmine_dir }}"
+  register: redmine_cache_clear_before
+  changed_when: redmine_cache_clear_before.rc == 0
+  environment:
+    PATH: "/usr/local/bin:/usr/pgsql-14/bin:{{ ansible_env.PATH }}"
+    RAILS_ENV: production
+    RAILS_RELATIVE_URL_ROOT: "{{ rails_relative_url_root | default('') }}"
+
+- name: Delete pre-built assets
+  ansible.builtin.command: bundle exec rake assets:clobber
+  args:
+    chdir: "{{ redmine_dir }}"
+  register: redmine_assets_clobber
+  changed_when: redmine_assets_clobber.rc == 0
+  environment:
+    PATH: "/usr/local/bin:/usr/pgsql-14/bin:{{ ansible_env.PATH }}"
+    RAILS_ENV: production
+    RAILS_RELATIVE_URL_ROOT: "{{ rails_relative_url_root | default('') }}"
+
+- name: Precompile assets (apply theme)
+  ansible.builtin.command: bundle exec rake assets:precompile
+  args:
+    chdir: "{{ redmine_dir }}"
+  register: redmine_assets_precompile
+  changed_when: redmine_assets_precompile.rc == 0
+  environment:
+    PATH: "/usr/local/bin:/usr/pgsql-14/bin:{{ ansible_env.PATH }}"
+    RAILS_ENV: production
+    RAILS_RELATIVE_URL_ROOT: "{{ rails_relative_url_root | default('') }}"
+
+- name: Clear Redmine cache (after assets rebuild)
+  ansible.builtin.command: bundle exec rake tmp:cache:clear
+  args:
+    chdir: "{{ redmine_dir }}"
+  register: redmine_cache_clear_after
+  changed_when: redmine_cache_clear_after.rc == 0
+  environment:
+    PATH: "/usr/local/bin:/usr/pgsql-14/bin:{{ ansible_env.PATH }}"
+    RAILS_ENV: production
+    RAILS_RELATIVE_URL_ROOT: "{{ rails_relative_url_root | default('') }}"
+
+- name: Restart Apache (httpd) to apply Redmine changes
+  ansible.builtin.systemd:
+    name: httpd
+    state: restarted
+    enabled: yes
