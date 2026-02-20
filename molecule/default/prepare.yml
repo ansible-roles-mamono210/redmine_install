@@ -10,6 +10,10 @@
     work_dir: /tmp/redmine-install-dir
 
   tasks:
+    - name: Install Git
+      ansible.builtin.include_role:
+        name: mamono210.git
+
     - name: Add authorized keys
       ansible.posix.authorized_key:
         user: "{{ ansible_user }}"
