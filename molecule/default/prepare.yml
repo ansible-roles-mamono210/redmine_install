@@ -34,7 +34,7 @@
 
     - name: Install psycopg2
       ansible.builtin.pip:
-        name: psycopg2
+        name: psycopg2-binary
         state: present
       environment:
         PATH: "/usr/pgsql-14/bin:{{ ansible_env.PATH }}"
